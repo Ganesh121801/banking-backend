@@ -48,3 +48,13 @@ model Transaction {
 
   @@map("transactions")
 }
+
+// model Transaction {
+//   id              Int       @id @default(autoincrement())
+//   amount          Float
+//   transactionType String
+//   userId          Int
+//   accountId       Int
+//   createdAt       DateTime  @default(now())  // Ensure this line exists
+//   user            User      @relation(fields: [userId], references: [id])
+//   account         Account   @relation(fields: [accountId], references: [id])

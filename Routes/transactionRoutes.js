@@ -21,11 +21,14 @@ router.get("/:userId", async (req, res) => {
     const account = await prisma.account.findFirst({
       where: { userId }
     });
-
-    res.json({ 
-      transactions,
-      balance: account?.balance || 0
-    });
+const serializedTransactions = transactions.map(tx => ({
+  ...tx,
+  created_at: tx.createdAt ? tx.createdAt.toISOString() : null
+}));
+res.json({ 
+  transactions: serializedTransactions, // <-- use this!
+  balance: account?.balance || 0
+});
   } catch (error) {
     res.status(400).json({ error: error.message });
   }
