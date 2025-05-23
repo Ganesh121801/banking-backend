@@ -1,78 +1,113 @@
 const express = require("express");
 const bcrypt = require("bcryptjs");
 const jwt = require("jsonwebtoken");
-const { createClient } = require("@supabase/supabase-js");
+const { PrismaClient } = require("@prisma/client");
 require("dotenv").config();
 
 const router = express.Router();
-const supabase = createClient(
-    process.env.SUPABASE_URL,
-    process.env.SUPABASE_SERVICE_ROLE_KEY, 
-    {
-      auth: {
-        autoRefreshToken: false,
-        persistSession: false,
-        detectSessionInUrl: false
-      }
-    }
-  );
+const prisma = new PrismaClient();
 
-
-
+// Register route
 router.post("/register", async (req, res) => {
-    const { name, email, password } = req.body;
-    console.log(name,email,password);
-    
+  const { name, email, password } = req.body;
+  
+  try {
     const hashedPassword = await bcrypt.hash(password, 10);
-    const user = await supabase.auth.getUser();
-    // Insert into Supabase
-    const { data, error } = await supabase
-    .from("users")
-    .insert([{ name, email, password: hashedPassword, role:"customer" }])
-    .select("id, name, email, role");
 
-    if (error) return res.status(400).json({ error: error.message });
+    const user = await prisma.user.create({
+      data: {
+        name,
+        email,
+        password: hashedPassword,
+        role: "customer",
+        accounts: {
+          create: { balance: 0 }
+        }
+      },
+     
+      select: {
+        id: true,
+        name: true,
+        email: true,
+        role: true,
+        accounts: {
+          select: {
+            id: true,
+            balance: true
+          }
+        }
+      }
+    });
 
-    res.json({ message: "User registered successfully", user: data });
+    res.json({ 
+      message: "User registered successfully", 
+      user: {
+        id: user.id,
+        name: user.name,
+        email: user.email,
+        role: user.role,
+        accountId: user.accounts[0]?.id
+      }
+    });
+  } catch (error) {
+    if (error.code === 'P2002') {
+      return res.status(400).json({ error: "Email already exists" });
+    }
+    res.status(500).json({ error: error.message });
+  }
 });
 
-
-// In your auth route file
+// Login route
 router.post("/login", async (req, res) => {
   const { email, password } = req.body;
   
   try {
-  
-      const { data, error } = await supabase
-          .from("users")
-          .select("*")
-          .eq("email", email)
-          .single();
-
-          console.log(data);
-          
-      if (error || !data) {
-          return res.status(401).json({ error: "Invalid credentials" });
+    const user = await prisma.user.findUnique({
+      where: { email },
+      include: {
+        accounts: {
+          select: {
+            id: true,
+            balance: true
+          }
+        }
       }
+    });
 
-      const validPassword = await bcrypt.compare(password, data.password);
-      if (!validPassword) {
-          return res.status(401).json({ error: "Invalid credentials" });
+    if (!user) {
+      return res.status(401).json({ error: "Invalid credentials" });
+    }
+
+    const validPassword = await bcrypt.compare(password, user.password);
+    if (!validPassword) {
+      return res.status(401).json({ error: "Invalid credentials" });
+    }
+
+    const token = jwt.sign(
+      { 
+        id: user.id, 
+        email: user.email,
+        isBanker: user.role === 'banker' 
+      }, 
+      process.env.JWT_SECRET, 
+      { expiresIn: '24h' }
+    );
+    
+    
+    res.json({ 
+      token, 
+      user: {
+        id: user.id,
+        name: user.name,
+        email: user.email,
+        role: user.role,
+        isAdmin: user.role === 'banker',
+        accountId: user.accounts[0]?.id
       }
-
-      const token = jwt.sign(
-          { 
-              id: data.id, 
-              email: data.email,
-              isBanker: data.role === 'banker' 
-          }, 
-          process.env.JWT_SECRET, 
-          { expiresIn: '24h' }
-      );
-      
-      res.json({ token, user: { id: data.id, email: data.email, role: data.role,isAdmin:data.role === 'banker' } });
-  } catch (err) {
-      res.status(500).json({ error: err.message });
+    });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
   }
 });
+
 module.exports = router;
